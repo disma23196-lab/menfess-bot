@@ -38,10 +38,10 @@ BAD_WORDS = [
     "shit", "fuck", "fck", "fak", "damn", "hell",
     "bastard", "asshole", "bitch", "motherfucker",
     "cunt", "dick", "pussy", "wtf", "stfu",
-    "bullshit", "bs", "af",
+    "bullshit", "kocak", "gila",
     "asu", "jancok", "jancuk", "cok", "cuk",
     "ndasmu", "matamu", "raimu",
-    "bangke", "bangkean", "noob", "cringe",
+    "bangke", "bangkean", "gendeng", "cringe",
 ]
 
 def normalize_text(text: str) -> str:
