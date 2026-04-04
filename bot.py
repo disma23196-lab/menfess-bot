@@ -12,7 +12,6 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-
 import re
 
 # =========================
@@ -29,74 +28,44 @@ LEET_MAP = str.maketrans({
     "$": "s",
 })
 
+BAD_WORDS = [
+    "anjing", "anjir", "njir", "bjir",
+    "bangsat", "bajingan", "sialan",
+    "goblok", "tolol", "bego", "idiot",
+    "kampret", "keparat",
+    "kontol", "kntl", "memek", "mmk",
+    "tai", "tahi", "setan", "iblis",
+    "shit", "fuck", "fck", "fak", "damn", "hell",
+    "bastard", "asshole", "bitch", "motherfucker",
+    "cunt", "dick", "pussy", "wtf", "stfu",
+    "bullshit", "bs", "af",
+    "asu", "jancok", "jancuk", "cok", "cuk",
+    "ndasmu", "matamu", "raimu",
+    "bangke", "bangkean", "noob", "cringe",
+]
+
 def normalize_text(text: str) -> str:
     text = text.lower()
-
-    # ubah angka/simbol ke huruf
     text = text.translate(LEET_MAP)
 
-    # hapus simbol selain huruf, angka, spasi
-    text = re.sub(r"[^a-z0-9\s]", "", text)
+    # ubah simbol jadi spasi
+    text = re.sub(r"[^a-z0-9]", " ", text)
 
-    # rapikan huruf berulang berlebihan
-    # gobloooookkk -> goblok
+    # huruf berulang dipendekkan: gobloooook -> goblok
     text = re.sub(r"(.)\1{2,}", r"\1", text)
 
     # rapikan spasi
     text = re.sub(r"\s+", " ", text).strip()
-
     return text
-
-def compact_text(text: str) -> str:
-    # hapus semua spasi biar "go blok" tetap ketangkap
-    return re.sub(r"\s+", "", text)
-
-BAD_PATTERNS = [
-    # Indonesia umum
-    r"anjing+", r"anjir+", r"njir+", r"bjir+",
-    r"bangsat+", r"bajingan+", r"sialan+",
-    r"goblok+", r"tolol+", r"bego+", r"idiot+",
-    r"kampret+", r"keparat+",
-
-    # Indonesia kasar berat
-    r"kontol+", r"kntl+", r"memek+", r"mmk+",
-    r"tai+", r"tahi+", r"setan+", r"iblis+",
-
-    # Inggris
-    r"shit+", r"fuck+", r"fck+", r"fak+",
-    r"damn+", r"hell+", r"bastard+",
-    r"asshole+", r"bitch+",
-    r"motherfucker+", r"cunt+",
-    r"dick+", r"pussy+",
-
-    # Inggris slang
-    r"wtf+", r"stfu+", r"bullshit+", r"bs+", r"af+",
-
-    # Jawa kasar
-    r"asu+", r"jancok+", r"jancuk+",
-    r"cok+", r"cuk+",
-    r"ndasmu+", r"matamu+", r"raimu+",
-
-    # Hinaan campuran
-    r"otakudang+",
-    r"gobloklu+",
-    r"begobangetsih+",
-    r"cringe+",
-    r"noob+",
-
-    # Variasi sensor
-    r"anj.*ng",
-    r"b.*ngsat",
-]
 
 def is_toxic(text: str) -> bool:
     normal = normalize_text(text)
-    compact = compact_text(normal)
+    joined = normal.replace(" ", "")
 
-    for pattern in BAD_PATTERNS:
-        if re.search(pattern, normal):
+    for bad in BAD_WORDS:
+        if bad in normal:
             return True
-        if re.search(pattern, compact):
+        if bad in joined:
             return True
 
     return False
@@ -312,20 +281,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ================= PUBLISH =================
     elif "#publish" in text.lower():
-        clean = text.replace("#publish", "").strip()
+        clean = re.sub(r"#publish", "", text, flags=re.IGNORECASE).strip()
 
     if not clean:
         await message.reply_text("Tulis pesannya juga ya. Contoh:\n#publish halo semua")
         return
 
-    # FILTER KATA KASAR
+    print("TEXT ASLI:", clean)
+    print("TEXT NORMAL:", normalize_text(clean))
+    print("TOXIC:", is_toxic(clean))
+
     if is_toxic(clean):
         await message.reply_text(
             "❌ Pesan mengandung kata tidak pantas."
         )
         return
 
-    # FILTER CAPS BERLEBIHAN
     if is_caps_spam(clean):
         await message.reply_text(
             "⚠️ Jangan pakai huruf kapital berlebihan ya."
