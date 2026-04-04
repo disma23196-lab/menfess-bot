@@ -1,6 +1,6 @@
 import os
 
-BOT_TOKEN = os.getenv(8796399908:AAHVcq5IMODEBr6jp5gRqfRwujOmha_lwCI)
+BOT_TOKEN = os.getenv("8796399908:AAHVcq5IMODEBr6jp5gRqfRwujOmha_lwCI")
 
 CHANNEL_USERNAME = "@menfessbksmpn54sby"
 MAIN_CHANNEL_ID = -1003666493378
