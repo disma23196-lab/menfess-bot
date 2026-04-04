@@ -312,7 +312,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ================= PUBLISH =================
     elif "#publish" in text.lower():
-    clean = text.replace("#publish", "").strip()
+        clean = text.replace("#publish", "").strip()
 
     if not clean:
         await message.reply_text("Tulis pesannya juga ya. Contoh:\n#publish halo semua")
