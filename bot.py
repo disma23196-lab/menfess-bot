@@ -13,6 +13,126 @@ from telegram.ext import (
     filters,
 )
 
+import re
+
+# =========================
+# FILTER KATA TIDAK PANTAS
+# =========================
+LEET_MAP = str.maketrans({
+    "0": "o",
+    "1": "i",
+    "3": "e",
+    "4": "a",
+    "5": "s",
+    "7": "t",
+    "@": "a",
+    "$": "s",
+})
+
+def normalize_text(text: str) -> str:
+    text = text.lower()
+
+    # ubah angka/simbol ke huruf
+    text = text.translate(LEET_MAP)
+
+    # hapus simbol selain huruf, angka, spasi
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+
+    # rapikan huruf berulang berlebihan
+    # gobloooookkk -> goblok
+    text = re.sub(r"(.)\1{2,}", r"\1", text)
+
+    # rapikan spasi
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text
+
+def compact_text(text: str) -> str:
+    # hapus semua spasi biar "go blok" tetap ketangkap
+    return re.sub(r"\s+", "", text)
+
+BAD_PATTERNS = [
+    # Indonesia umum
+    r"anjing+", r"anjir+", r"njir+", r"bjir+",
+    r"bangsat+", r"bajingan+", r"sialan+",
+    r"goblok+", r"tolol+", r"bego+", r"idiot+",
+    r"kampret+", r"keparat+",
+
+    # Indonesia kasar berat
+    r"kontol+", r"kntl+", r"memek+", r"mmk+",
+    r"tai+", r"tahi+", r"setan+", r"iblis+",
+
+    # Inggris
+    r"shit+", r"fuck+", r"fck+", r"fak+",
+    r"damn+", r"hell+", r"bastard+",
+    r"asshole+", r"bitch+",
+    r"motherfucker+", r"cunt+",
+    r"dick+", r"pussy+",
+
+    # Inggris slang
+    r"wtf+", r"stfu+", r"bullshit+", r"bs+", r"af+",
+
+    # Jawa kasar
+    r"asu+", r"jancok+", r"jancuk+",
+    r"cok+", r"cuk+",
+    r"ndasmu+", r"matamu+", r"raimu+",
+
+    # Hinaan campuran
+    r"otakudang+",
+    r"gobloklu+",
+    r"begobangetsih+",
+    r"cringe+",
+    r"noob+",
+
+    # Variasi sensor
+    r"anj.*ng",
+    r"b.*ngsat",
+]
+
+def is_toxic(text: str) -> bool:
+    normal = normalize_text(text)
+    compact = compact_text(normal)
+
+    for pattern in BAD_PATTERNS:
+        if re.search(pattern, normal):
+            return True
+        if re.search(pattern, compact):
+            return True
+
+    return False
+
+
+# =========================
+# FILTER CAPSLOCK BERLEBIHAN
+# =========================
+def is_caps_spam(text: str) -> bool:
+    if not text:
+        return False
+
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return False
+
+    upper = sum(1 for c in letters if c.isupper())
+    ratio = upper / len(letters)
+
+    # lebih fleksibel: caps pendek karena excited masih boleh
+    return ratio > 0.8 and len(text) > 20
+
+# =========================
+# FUNCTION UTAMA
+# =========================
+def is_toxic(text: str) -> bool:
+    normal = normalize_text(text)
+    compact = compact_text(normal)
+
+    for pattern in BAD_PATTERNS:
+        if re.search(pattern, normal):
+            return True
+        if re.search(pattern, compact):
+            return True
+
+    return False
 from config import *
 
 logging.basicConfig(
@@ -192,14 +312,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ================= PUBLISH =================
     elif "#publish" in text.lower():
-        clean = text.replace("#publish", "").strip()
+    clean = text.replace("#publish", "").strip()
 
     if not clean:
         await message.reply_text("Tulis pesannya juga ya. Contoh:\n#publish halo semua")
         return
 
+    # FILTER KATA KASAR
     if is_toxic(clean):
-        await message.reply_text("❌ Pesan terdeteksi tidak pantas, jadi tidak dipublish.")
+        await message.reply_text(
+            "❌ Pesan mengandung kata tidak pantas."
+        )
+        return
+
+    # FILTER CAPS BERLEBIHAN
+    if is_caps_spam(clean):
+        await message.reply_text(
+            "⚠️ Jangan pakai huruf kapital berlebihan ya."
+        )
         return
 
     sent_msg = await context.bot.send_message(
@@ -213,6 +343,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "msg_id": sent_msg.message_id
     }
     save_data(data_db)
+
+    await context.bot.send_message(
+        chat_id=ADMIN_GROUP_ID,
+        text=(
+            f"🆔 {uid}\n"
+            f"👤 USER ID: {user.id}\n"
+            f"📢 MENFESS PUBLISH\n\n"
+            f"{clean}"
+        ),
+        reply_markup=admin_buttons(uid, user.id)
+    )
+
+    await message.reply_text("✅ Menfess kamu berhasil dipublish.")
+    return
 
     await context.bot.send_message(
         chat_id=ADMIN_GROUP_ID,
