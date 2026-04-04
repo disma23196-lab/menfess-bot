@@ -88,20 +88,6 @@ def is_caps_spam(text: str) -> bool:
     # lebih fleksibel: caps pendek karena excited masih boleh
     return ratio > 0.8 and len(text) > 20
 
-# =========================
-# FUNCTION UTAMA
-# =========================
-def is_toxic(text: str) -> bool:
-    normal = normalize_text(text)
-    compact = compact_text(normal)
-
-    for pattern in BAD_PATTERNS:
-        if re.search(pattern, normal):
-            return True
-        if re.search(pattern, compact):
-            return True
-
-    return False
 from config import *
 
 logging.basicConfig(
@@ -139,17 +125,6 @@ banned_users = load_banned()
 
 last_message_time = {}
 SPAM_DELAY = 100  # detik
-
-# =========================
-# FUNGSI BANTU
-# =========================
-def is_toxic(text: str) -> bool:
-    text = text.lower()
-    bad_words = [
-        "anj", "anjg", "babi", "kont", "memek",
-        "tolol", "goblok", "bangsat"
-    ]
-    return any(word in text for word in bad_words)
 
 def admin_buttons(uid, user_id):
     if user_id in banned_users:
@@ -287,10 +262,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text("Tulis pesannya juga ya. Contoh:\n#publish halo semua")
         return
 
-    print("TEXT ASLI:", clean)
-    print("TEXT NORMAL:", normalize_text(clean))
-    print("TOXIC:", is_toxic(clean))
-
     if is_toxic(clean):
         await message.reply_text(
             "❌ Pesan mengandung kata tidak pantas."
@@ -314,20 +285,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "msg_id": sent_msg.message_id
     }
     save_data(data_db)
-
-    await context.bot.send_message(
-        chat_id=ADMIN_GROUP_ID,
-        text=(
-            f"🆔 {uid}\n"
-            f"👤 USER ID: {user.id}\n"
-            f"📢 MENFESS PUBLISH\n\n"
-            f"{clean}"
-        ),
-        reply_markup=admin_buttons(uid, user.id)
-    )
-
-    await message.reply_text("✅ Menfess kamu berhasil dipublish.")
-    return
 
     await context.bot.send_message(
         chat_id=ADMIN_GROUP_ID,
@@ -404,6 +361,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.edit_reply_markup(
             reply_markup=admin_buttons(uid, user_id)
         )
+        
 # =========================
 # BALASAN ADMIN KE USER
 # =========================
