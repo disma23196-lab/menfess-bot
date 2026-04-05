@@ -36,24 +36,16 @@ LEET_MAP = str.maketrans({
     "!": "i",
 })
 
-# Kata panjang — diblok di mana saja, termasuk jika jadi bagian kata lain
 BAD_WORDS_ANYWHERE = [
-    # Indonesia — makian umum
     "anjing", "anjir", "anying", "anjg", "njir", "bjir",
     "bangsat", "bajingan", "sialan", "keparat", "kampret",
     "goblok", "tolol", "bego", "idiot",
     "kocak", "gila", "gendeng",
-
-    # Indonesia — kasar berat
     "kontol", "kntl", "memek", "mmk",
     "tahi", "setan", "iblis",
-
-    # Bahasa Jawa kasar
     "asu", "jancok", "jancuk", "jancik",
     "ndasmu", "matamu", "raimu",
     "bangke", "bangkean",
-
-    # Bahasa Inggris
     "shit", "fuck", "fck", "fak",
     "damn", "hell", "bastard",
     "asshole", "bitch",
@@ -63,18 +55,11 @@ BAD_WORDS_ANYWHERE = [
     "bullshit", "cringe",
 ]
 
-# Kata pendek — diblok HANYA jika berdiri sendiri sebagai satu kata,
-# supaya tidak salah tangkap kata normal seperti "cukup", "santai", "afwan"
 BAD_WORDS_WHOLE = [
-    "tai",  # hindari salah tangkap: "santai", "pertai"
-    "bs",   # hindari: "basis", "bisa"
-    "af",   # hindari: "afwan"
-    "cok",  # hindari: "Bapak Sujoko"
-    "cuk",  # hindari: "cukup"
+    "tai", "bs", "af", "cok", "cuk",
 ]
 
 def normalize_text(text: str) -> str:
-    """Normalisasi: lowercase, leet-speak, hapus simbol, rapikan huruf berulang."""
     text = text.lower()
     text = text.translate(LEET_MAP)
     text = re.sub(r"[^a-z0-9\s]", " ", text)
@@ -83,19 +68,16 @@ def normalize_text(text: str) -> str:
     return text
 
 def is_toxic(text: str) -> bool:
-    """Cek apakah teks mengandung kata tidak pantas."""
     normal = normalize_text(text)
     joined = normal.replace(" ", "")
     words = set(normal.split())
 
-    # Kata panjang: cek di teks normal dan teks gabung (anti spasi antar huruf)
     for bad in BAD_WORDS_ANYWHERE:
         if bad in normal:
             return True
         if bad in joined:
             return True
 
-    # Kata pendek: hanya jika berdiri sendiri sebagai satu kata
     for bad in BAD_WORDS_WHOLE:
         if bad in words:
             return True
@@ -103,7 +85,6 @@ def is_toxic(text: str) -> bool:
     return False
 
 def is_caps_spam(text: str) -> bool:
-    """Cek apakah teks menggunakan huruf kapital berlebihan (>80%, panjang >20 karakter)."""
     if not text:
         return False
     letters = [c for c in text if c.isalpha()]
@@ -142,8 +123,8 @@ data_db = load_data()
 banned_users = load_banned()
 
 last_message_time = {}
-SPAM_DELAY = 60       # detik antar pesan
-MAX_MSG_LENGTH = 1000  # batas maksimal panjang pesan
+SPAM_DELAY = 60
+MAX_MSG_LENGTH = 500
 
 # =========================
 # TOMBOL ADMIN
@@ -175,10 +156,6 @@ def update_stats(user_id):
 # =========================
 # COMMAND /start
 # =========================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"Debug info:\nADMIN_GROUP_ID: {ADMIN_GROUP_ID}\nMAIN_CHANNEL_ID: {MAIN_CHANNEL_ID}"
-    )
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Halo! Siswa dan siswi SMPN 54 Surabaya 👋\n\n"
@@ -265,6 +242,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Kirim ke grup admin
         try:
             sent_msg = await context.bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
@@ -276,22 +254,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=admin_buttons(uid, user.id),
             )
-
             data_db["messages"][uid] = {
                 "user_id": user.id,
                 "type": "keep",
                 "admin_msg_id": sent_msg.message_id,
             }
             save_data(data_db)
-
-            await message.reply_text(
-                "✅ Pesan curhatan kamu sudah dikirim ke admin BK secara anonim."
-            )
-
         except Exception as e:
             logging.error(f"Gagal kirim ke admin grup (keep): {e}")
-            await message.reply_text("❌ Gagal mengirim pesan. Coba lagi nanti.")
+            await message.reply_text(f"❌ Gagal mengirim ke admin. Error: {e}")
+            return
 
+        await message.reply_text(
+            "✅ Pesan curhatan kamu sudah dikirim ke admin BK secara anonim."
+        )
         return
 
     # ─── #publish ─────────────────────────────────────────────
@@ -322,19 +298,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+        # Step 1: kirim ke channel utama
         try:
             sent_msg = await context.bot.send_message(
                 chat_id=MAIN_CHANNEL_ID,
                 text=f"🆔 {uid}\n📢 MENFESS\n\n{clean}",
             )
-
             data_db["messages"][uid] = {
                 "user_id": user.id,
                 "type": "publish",
                 "msg_id": sent_msg.message_id,
             }
             save_data(data_db)
+        except Exception as e:
+            logging.error(f"Gagal kirim ke channel: {e}")
+            await message.reply_text(f"❌ Gagal mengirim ke channel. Error: {e}")
+            return
 
+        # Step 2: kirim log ke grup admin (tidak batalkan publish kalau ini gagal)
+        try:
             await context.bot.send_message(
                 chat_id=ADMIN_GROUP_ID,
                 text=(
@@ -345,13 +327,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=admin_buttons(uid, user.id),
             )
-
-            await message.reply_text("✅ Menfess kamu berhasil dipublish ke channel!")
-
         except Exception as e:
-            logging.error(f"Gagal publish menfess: {e}")
-            await message.reply_text("❌ Gagal mengirim menfess. Coba lagi nanti.")
+            # Publish ke channel sudah berhasil, jadi tetap kasih konfirmasi ke user
+            # tapi catat error admin di log
+            logging.error(f"Gagal kirim log ke admin grup: {e}")
 
+        # Step 3: konfirmasi ke user (selalu jalan selama channel berhasil)
+        await message.reply_text("✅ Menfess kamu berhasil dipublish ke channel!")
         return
 
     # ─── Format tidak dikenal ─────────────────────────────────
@@ -487,7 +469,6 @@ app.add_error_handler(error_handler)
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("unban", unban_command))
 
-# Handler admin reply — harus di atas handle_message agar tidak bentrok
 app.add_handler(MessageHandler(
     filters.TEXT & filters.Chat(ADMIN_GROUP_ID) & ~filters.COMMAND,
     handle_admin_reply,
