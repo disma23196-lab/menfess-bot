@@ -177,6 +177,10 @@ def update_stats(user_id):
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
+        f"Debug info:\nADMIN_GROUP_ID: {ADMIN_GROUP_ID}\nMAIN_CHANNEL_ID: {MAIN_CHANNEL_ID}"
+    )
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
         "Halo! Siswa dan siswi SMPN 54 Surabaya 👋\n\n"
         "Kamu bisa mengirim menfess dengan format:\n\n"
         "📩 #keep [pesan] — menfess curhatan ke admin BK (anonim)\n"
