@@ -143,7 +143,7 @@ banned_users = load_banned()
 
 last_message_time = {}
 SPAM_DELAY = 60       # detik antar pesan
-MAX_MSG_LENGTH = 500  # batas maksimal panjang pesan
+MAX_MSG_LENGTH = 1000  # batas maksimal panjang pesan
 
 # =========================
 # TOMBOL ADMIN
