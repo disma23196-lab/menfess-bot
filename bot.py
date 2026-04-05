@@ -255,7 +255,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ================= PUBLISH =================
-    elif "#publish" in text.lower():
+    elif text.lower().startswith("#publish"):
         clean = re.sub(r"#publish", "", text, flags=re.IGNORECASE).strip()
 
     if not clean:
@@ -263,15 +263,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if is_toxic(clean):
-        await message.reply_text(
-            "❌ Pesan mengandung kata tidak pantas."
-        )
+        await message.reply_text("❌ Pesan mengandung kata tidak pantas.")
         return
 
     if is_caps_spam(clean):
-        await message.reply_text(
-            "⚠️ Jangan pakai huruf kapital berlebihan ya."
-        )
+        await message.reply_text("⚠️ Jangan pakai huruf kapital berlebihan ya.")
         return
 
     sent_msg = await context.bot.send_message(
@@ -296,7 +292,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),
         reply_markup=admin_buttons(uid, user.id)
     )
-
     await message.reply_text("✅ Menfess kamu berhasil dipublish.")
     return
 
