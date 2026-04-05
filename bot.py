@@ -124,7 +124,7 @@ banned_users = load_banned()
 
 last_message_time = {}
 SPAM_DELAY = 60
-MAX_MSG_LENGTH = 500
+MAX_MSG_LENGTH = 1500
 
 # =========================
 # TOMBOL ADMIN
