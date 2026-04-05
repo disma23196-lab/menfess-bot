@@ -184,19 +184,7 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # HANDLE PESAN USER
 # =========================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # ⬇️ TARUH DI SINI (PALING ATAS)
     if update.effective_chat.type != "private":
-        return
-
-    user = update.effective_user
-    message = update.message
-
-    if not message or not message.text:
-        return
-
-    text = message.text.strip()
-
-    if update.effective_chat.id == ADMIN_GROUP_ID:
         return
 
     user = update.effective_user
@@ -226,8 +214,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(uuid.uuid4())[:8]
 
     # ================= KEEP =================
-    if "#keep" in text.lower():
-        clean = text.replace("#keep", "").strip()
+    if text.lower().startswith("#keep"):
+        clean = re.sub(r"^#keep", "", text, flags=re.IGNORECASE).strip()
 
         if not clean:
             await message.reply_text("Tulis pesannya juga ya. Contoh:\n#keep aku lagi capek")
@@ -256,44 +244,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ================= PUBLISH =================
     elif text.lower().startswith("#publish"):
-        clean = re.sub(r"#publish", "", text, flags=re.IGNORECASE).strip()
+        clean = re.sub(r"^#publish", "", text, flags=re.IGNORECASE).strip()
 
-    if not clean:
-        await message.reply_text("Tulis pesannya juga ya. Contoh:\n#publish halo semua")
+        if not clean:
+            await message.reply_text("Tulis pesannya juga ya. Contoh:\n#publish halo semua")
+            return
+
+        if is_toxic(clean):
+            await message.reply_text("❌ Pesan mengandung kata tidak pantas.")
+            return
+
+        if is_caps_spam(clean):
+            await message.reply_text("⚠️ Jangan pakai huruf kapital berlebihan ya.")
+            return
+
+        sent_msg = await context.bot.send_message(
+            chat_id=MAIN_CHANNEL_ID,
+            text=f"🆔 {uid}\n📢 MENFESS\n\n{clean}"
+        )
+
+        data_db["messages"][uid] = {
+            "user_id": user.id,
+            "type": "publish",
+            "msg_id": sent_msg.message_id
+        }
+        save_data(data_db)
+
+        await context.bot.send_message(
+            chat_id=ADMIN_GROUP_ID,
+            text=(
+                f"🆔 {uid}\n"
+                f"👤 USER ID: {user.id}\n"
+                f"📢 MENFESS PUBLISH\n\n"
+                f"{clean}"
+            ),
+            reply_markup=admin_buttons(uid, user.id)
+        )
+
+        await message.reply_text("✅ Menfess kamu berhasil dipublish.")
         return
 
-    if is_toxic(clean):
-        await message.reply_text("❌ Pesan mengandung kata tidak pantas.")
+    else:
+        await message.reply_text(
+            "Gunakan:\n#keep isi pesan\natau\n#publish isi pesan"
+        )
         return
-
-    if is_caps_spam(clean):
-        await message.reply_text("⚠️ Jangan pakai huruf kapital berlebihan ya.")
-        return
-
-    sent_msg = await context.bot.send_message(
-        chat_id=MAIN_CHANNEL_ID,
-        text=f"🆔 {uid}\n📢 MENFESS\n\n{clean}"
-    )
-
-    data_db["messages"][uid] = {
-        "user_id": user.id,
-        "type": "publish",
-        "msg_id": sent_msg.message_id
-    }
-    save_data(data_db)
-
-    await context.bot.send_message(
-        chat_id=ADMIN_GROUP_ID,
-        text=(
-            f"🆔 {uid}\n"
-            f"👤 USER ID: {user.id}\n"
-            f"📢 MENFESS PUBLISH\n\n"
-            f"{clean}"
-        ),
-        reply_markup=admin_buttons(uid, user.id)
-    )
-    await message.reply_text("✅ Menfess kamu berhasil dipublish.")
-    return
 
 # =========================
 # TOMBOL ADMIN
