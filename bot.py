@@ -2,6 +2,7 @@ import json
 import uuid
 import time
 import logging
+import re
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -12,7 +13,13 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
-import re
+
+from config import *
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 
 # =========================
 # FILTER KATA TIDAK PANTAS
@@ -26,83 +33,94 @@ LEET_MAP = str.maketrans({
     "7": "t",
     "@": "a",
     "$": "s",
+    "!": "i",
 })
 
-BAD_WORDS = [
-    "anjing", "anjir", "njir", "bjir",
-    "bangsat", "bajingan", "sialan",
+# Kata panjang — diblok di mana saja, termasuk jika jadi bagian kata lain
+BAD_WORDS_ANYWHERE = [
+    # Indonesia — makian umum
+    "anjing", "anjir", "anying", "anjg", "njir", "bjir",
+    "bangsat", "bajingan", "sialan", "keparat", "kampret",
     "goblok", "tolol", "bego", "idiot",
-    "kampret", "keparat",
+    "kocak", "gila", "gendeng",
+
+    # Indonesia — kasar berat
     "kontol", "kntl", "memek", "mmk",
-    "tai", "tahi", "setan", "iblis",
-    "shit", "fuck", "fck", "fak", "damn", "hell",
-    "bastard", "asshole", "bitch", "motherfucker",
-    "cunt", "dick", "pussy", "wtf", "stfu",
-    "bullshit", "kocak", "gila",
-    "asu", "jancok", "jancuk", "cok", "cuk",
+    "tahi", "setan", "iblis",
+
+    # Bahasa Jawa kasar
+    "asu", "jancok", "jancuk", "jancik",
     "ndasmu", "matamu", "raimu",
-    "bangke", "bangkean", "gendeng", "cringe",
+    "bangke", "bangkean",
+
+    # Bahasa Inggris
+    "shit", "fuck", "fck", "fak",
+    "damn", "hell", "bastard",
+    "asshole", "bitch",
+    "motherfucker", "cunt",
+    "dick", "pussy",
+    "wtf", "stfu",
+    "bullshit", "cringe",
+]
+
+# Kata pendek — diblok HANYA jika berdiri sendiri sebagai satu kata,
+# supaya tidak salah tangkap kata normal seperti "cukup", "santai", "afwan"
+BAD_WORDS_WHOLE = [
+    "tai",  # hindari salah tangkap: "santai", "pertai"
+    "bs",   # hindari: "basis", "bisa"
+    "af",   # hindari: "afwan"
+    "cok",  # hindari: "Bapak Sujoko"
+    "cuk",  # hindari: "cukup"
 ]
 
 def normalize_text(text: str) -> str:
+    """Normalisasi: lowercase, leet-speak, hapus simbol, rapikan huruf berulang."""
     text = text.lower()
     text = text.translate(LEET_MAP)
-
-    # ubah simbol jadi spasi
-    text = re.sub(r"[^a-z0-9]", " ", text)
-
-    # huruf berulang dipendekkan: gobloooook -> goblok
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
     text = re.sub(r"(.)\1{2,}", r"\1", text)
-
-    # rapikan spasi
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 def is_toxic(text: str) -> bool:
+    """Cek apakah teks mengandung kata tidak pantas."""
     normal = normalize_text(text)
     joined = normal.replace(" ", "")
+    words = set(normal.split())
 
-    for bad in BAD_WORDS:
+    # Kata panjang: cek di teks normal dan teks gabung (anti spasi antar huruf)
+    for bad in BAD_WORDS_ANYWHERE:
         if bad in normal:
             return True
         if bad in joined:
             return True
 
+    # Kata pendek: hanya jika berdiri sendiri sebagai satu kata
+    for bad in BAD_WORDS_WHOLE:
+        if bad in words:
+            return True
+
     return False
 
-
-# =========================
-# FILTER CAPSLOCK BERLEBIHAN
-# =========================
 def is_caps_spam(text: str) -> bool:
+    """Cek apakah teks menggunakan huruf kapital berlebihan (>80%, panjang >20 karakter)."""
     if not text:
         return False
-
     letters = [c for c in text if c.isalpha()]
     if not letters:
         return False
-
     upper = sum(1 for c in letters if c.isupper())
     ratio = upper / len(letters)
-
-    # lebih fleksibel: caps pendek karena excited masih boleh
     return ratio > 0.8 and len(text) > 20
 
-from config import *
-
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-
 # =========================
-# FILE BANTU
+# FILE BANTU (DATABASE LOKAL)
 # =========================
 def load_data():
     try:
         with open("data.json", "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except Exception:
         return {"messages": {}, "stats": {}}
 
 def save_data(data):
@@ -113,7 +131,7 @@ def load_banned():
     try:
         with open("banned.json", "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except Exception:
         return []
 
 def save_banned(data):
@@ -124,8 +142,12 @@ data_db = load_data()
 banned_users = load_banned()
 
 last_message_time = {}
-SPAM_DELAY = 100  # detik
+SPAM_DELAY = 60       # detik antar pesan
+MAX_MSG_LENGTH = 500  # batas maksimal panjang pesan
 
+# =========================
+# TOMBOL ADMIN
+# =========================
 def admin_buttons(uid, user_id):
     if user_id in banned_users:
         ban_button = InlineKeyboardButton("✅ Unban", callback_data=f"unban:{uid}")
@@ -136,37 +158,42 @@ def admin_buttons(uid, user_id):
         [
             InlineKeyboardButton("💬 Reply", callback_data=f"reply:{uid}"),
             InlineKeyboardButton("🗑 Delete", callback_data=f"delete:{uid}"),
-            ban_button
+            ban_button,
         ]
     ])
 
+# =========================
+# STATISTIK
+# =========================
 def update_stats(user_id):
-    user_id = str(user_id)
+    uid_str = str(user_id)
     if "stats" not in data_db:
         data_db["stats"] = {}
-    if user_id not in data_db["stats"]:
-        data_db["stats"][user_id] = 0
-    data_db["stats"][user_id] += 1
+    data_db["stats"][uid_str] = data_db["stats"].get(uid_str, 0) + 1
     save_data(data_db)
 
 # =========================
-# COMMAND
+# COMMAND /start
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Halo! siswa dan siswi SMPN 54 Surabaya👋\n\n"
-        "Kamu bisa gunakan format berikut untuk mengirim menfess:\n"
-        "#keep untuk menfess curhatan yang akan terkirim secara anonim ke admin BK SMPN 54 Surabaya\n"
-        "#publish untuk menfess yang akan terkirim ke channel utama\n\n"
-        "Mohon untuk memperhatikan bahasa dan kalimat yang akan di gunakan"
+        "Halo! Siswa dan siswi SMPN 54 Surabaya 👋\n\n"
+        "Kamu bisa mengirim menfess dengan format:\n\n"
+        "📩 #keep [pesan] — menfess curhatan ke admin BK (anonim)\n"
+        "📢 #publish [pesan] — menfess ke channel utama (anonim)\n\n"
+        "⚠️ Mohon gunakan bahasa yang sopan dan bertanggung jawab.\n"
+        "Pesan yang mengandung kata tidak pantas akan otomatis ditolak."
     )
 
+# =========================
+# COMMAND /unban
+# =========================
 async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         return
 
     if not context.args:
-        await update.message.reply_text("Format: /unban ID_USER")
+        await update.message.reply_text("Format: /unban [ID_USER]")
         return
 
     try:
@@ -174,14 +201,14 @@ async def unban_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in banned_users:
             banned_users.remove(user_id)
             save_banned(banned_users)
-            await update.message.reply_text("✅ User berhasil di-unban")
+            await update.message.reply_text(f"✅ User {user_id} berhasil di-unban.")
         else:
-            await update.message.reply_text("User itu tidak sedang diban")
-    except:
-        await update.message.reply_text("Format: /unban ID_USER")
+            await update.message.reply_text("User tersebut tidak sedang diban.")
+    except ValueError:
+        await update.message.reply_text("Format: /unban [ID_USER]")
 
 # =========================
-# HANDLE PESAN USER
+# HANDLE PESAN USER (PRIVATE)
 # =========================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.type != "private":
@@ -195,123 +222,176 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = message.text.strip()
 
-    # cek ban
+    # Cek ban
     if user.id in banned_users:
-        await message.reply_text("❌ Kamu sedang dibanned.")
+        await message.reply_text("❌ Kamu sedang dibanned dan tidak bisa mengirim menfess.")
         return
 
-    # anti spam
+    # Anti spam
     now = time.time()
-    if user.id in last_message_time:
-        if now - last_message_time[user.id] < SPAM_DELAY:
-            await message.reply_text("🚫 Jangan spam ya, tunggu sebentar.")
-            return
+    last = last_message_time.get(user.id, 0)
+    if now - last < SPAM_DELAY:
+        sisa = int(SPAM_DELAY - (now - last))
+        await message.reply_text(f"🚫 Tunggu {sisa} detik sebelum kirim menfess lagi ya.")
+        return
     last_message_time[user.id] = now
 
-    # update statistik
     update_stats(user.id)
-
     uid = str(uuid.uuid4())[:8]
 
-    # ================= KEEP =================
+    # ─── #keep ────────────────────────────────────────────────
     if text.lower().startswith("#keep"):
-        clean = re.sub(r"^#keep", "", text, flags=re.IGNORECASE).strip()
+        clean = re.sub(r"^#keep\s*", "", text, flags=re.IGNORECASE).strip()
 
         if not clean:
-            await message.reply_text("Tulis pesannya juga ya. Contoh:\n#keep aku lagi capek")
+            await message.reply_text(
+                "Tulis pesannya juga ya 😊\nContoh: #keep aku lagi galau soal ujian"
+            )
             return
 
-        sent_msg = await context.bot.send_message(
-            chat_id=ADMIN_GROUP_ID,
-            text=(
-                f"🆔 {uid}\n"
-                f"👤 USER ID: {user.id}\n"
-                f"📩 MENFESS KEEP\n\n"
-                f"{clean}"
-            ),
-            reply_markup=admin_buttons(uid, user.id)
-        )
-
-        data_db["messages"][uid] = {
-            "user_id": user.id,
-            "type": "keep",
-            "admin_msg_id": sent_msg.message_id
-        }
-        save_data(data_db)
-
-        await message.reply_text("✅ Pesan rahasia kamu sudah dikirim ke admin Menfess.")
-        return
-
-    # ================= PUBLISH =================
-    elif text.lower().startswith("#publish"):
-        clean = re.sub(r"^#publish", "", text, flags=re.IGNORECASE).strip()
-
-        if not clean:
-            await message.reply_text("Tulis pesannya juga ya. Contoh:\n#publish halo semua")
+        if len(clean) > MAX_MSG_LENGTH:
+            await message.reply_text(
+                f"❌ Pesan terlalu panjang. Maksimal {MAX_MSG_LENGTH} karakter."
+            )
             return
 
         if is_toxic(clean):
-            await message.reply_text("❌ Pesan mengandung kata tidak pantas.")
+            await message.reply_text(
+                "❌ Pesan mengandung kata tidak pantas dan tidak bisa dikirim."
+            )
+            return
+
+        try:
+            sent_msg = await context.bot.send_message(
+                chat_id=ADMIN_GROUP_ID,
+                text=(
+                    f"🆔 {uid}\n"
+                    f"👤 USER ID: {user.id}\n"
+                    f"📩 MENFESS KEEP\n\n"
+                    f"{clean}"
+                ),
+                reply_markup=admin_buttons(uid, user.id),
+            )
+
+            data_db["messages"][uid] = {
+                "user_id": user.id,
+                "type": "keep",
+                "admin_msg_id": sent_msg.message_id,
+            }
+            save_data(data_db)
+
+            await message.reply_text(
+                "✅ Pesan curhatan kamu sudah dikirim ke admin BK secara anonim."
+            )
+
+        except Exception as e:
+            logging.error(f"Gagal kirim ke admin grup (keep): {e}")
+            await message.reply_text("❌ Gagal mengirim pesan. Coba lagi nanti.")
+
+        return
+
+    # ─── #publish ─────────────────────────────────────────────
+    elif text.lower().startswith("#publish"):
+        clean = re.sub(r"^#publish\s*", "", text, flags=re.IGNORECASE).strip()
+
+        if not clean:
+            await message.reply_text(
+                "Tulis pesannya juga ya 😊\nContoh: #publish halo semua!"
+            )
+            return
+
+        if len(clean) > MAX_MSG_LENGTH:
+            await message.reply_text(
+                f"❌ Pesan terlalu panjang. Maksimal {MAX_MSG_LENGTH} karakter."
+            )
+            return
+
+        if is_toxic(clean):
+            await message.reply_text(
+                "❌ Pesan mengandung kata tidak pantas dan tidak bisa dipublish."
+            )
             return
 
         if is_caps_spam(clean):
-            await message.reply_text("⚠️ Jangan pakai huruf kapital berlebihan ya.")
+            await message.reply_text(
+                "⚠️ Jangan pakai huruf kapital berlebihan ya. Coba tulis ulang."
+            )
             return
 
-        sent_msg = await context.bot.send_message(
-            chat_id=MAIN_CHANNEL_ID,
-            text=f"🆔 {uid}\n📢 MENFESS\n\n{clean}"
-        )
+        try:
+            sent_msg = await context.bot.send_message(
+                chat_id=MAIN_CHANNEL_ID,
+                text=f"🆔 {uid}\n📢 MENFESS\n\n{clean}",
+            )
 
-        data_db["messages"][uid] = {
-            "user_id": user.id,
-            "type": "publish",
-            "msg_id": sent_msg.message_id
-        }
-        save_data(data_db)
+            data_db["messages"][uid] = {
+                "user_id": user.id,
+                "type": "publish",
+                "msg_id": sent_msg.message_id,
+            }
+            save_data(data_db)
 
-        await context.bot.send_message(
-            chat_id=ADMIN_GROUP_ID,
-            text=(
-                f"🆔 {uid}\n"
-                f"👤 USER ID: {user.id}\n"
-                f"📢 MENFESS PUBLISH\n\n"
-                f"{clean}"
-            ),
-            reply_markup=admin_buttons(uid, user.id)
-        )
+            await context.bot.send_message(
+                chat_id=ADMIN_GROUP_ID,
+                text=(
+                    f"🆔 {uid}\n"
+                    f"👤 USER ID: {user.id}\n"
+                    f"📢 MENFESS PUBLISH\n\n"
+                    f"{clean}"
+                ),
+                reply_markup=admin_buttons(uid, user.id),
+            )
 
-        await message.reply_text("✅ Menfess kamu berhasil dipublish.")
+            await message.reply_text("✅ Menfess kamu berhasil dipublish ke channel!")
+
+        except Exception as e:
+            logging.error(f"Gagal publish menfess: {e}")
+            await message.reply_text("❌ Gagal mengirim menfess. Coba lagi nanti.")
+
         return
 
+    # ─── Format tidak dikenal ─────────────────────────────────
     else:
         await message.reply_text(
-            "Gunakan:\n#keep isi pesan\natau\n#publish isi pesan"
+            "Hmm, format tidak dikenali 🤔\n\n"
+            "Gunakan:\n"
+            "📩 #keep [pesan] — ke admin BK\n"
+            "📢 #publish [pesan] — ke channel"
         )
         return
 
 # =========================
-# TOMBOL ADMIN
+# TOMBOL ADMIN (CALLBACK)
 # =========================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
     if update.effective_user.id not in ADMIN_IDS:
-        await query.message.reply_text("Kamu bukan admin.")
+        await query.answer("Kamu bukan admin.", show_alert=True)
         return
 
-    action, uid = query.data.split(":")
+    try:
+        action, uid = query.data.split(":", 1)
+    except ValueError:
+        await query.message.reply_text("❌ Format tombol tidak valid.")
+        return
 
     if uid not in data_db["messages"]:
-        await query.message.reply_text("❌ Data tidak ditemukan.")
+        await query.message.reply_text(
+            "❌ Data menfess tidak ditemukan.\n"
+            "(Kemungkinan bot baru restart dan data lama hilang.)"
+        )
         return
 
     user_id = data_db["messages"][uid]["user_id"]
 
     if action == "reply":
         context.chat_data["reply_to"] = uid
-        await query.message.reply_text(f"✏️ Balas untuk ID {uid}")
+        await query.message.reply_text(
+            f"✏️ Mode reply aktif untuk menfess ID {uid}\n"
+            f"Ketik pesan balasan kamu sekarang."
+        )
 
     elif action == "delete":
         msg_data = data_db["messages"][uid]
@@ -320,23 +400,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.delete_message(
                     chat_id=MAIN_CHANNEL_ID,
-                    message_id=msg_data["msg_id"]
+                    message_id=msg_data["msg_id"],
                 )
-            except:
-                pass
+            except Exception as e:
+                logging.warning(f"Gagal hapus pesan di channel: {e}")
 
         del data_db["messages"][uid]
         save_data(data_db)
-
         await query.message.reply_text("🗑 Menfess berhasil dihapus.")
 
     elif action == "ban":
         if user_id not in banned_users:
             banned_users.append(user_id)
             save_banned(banned_users)
-
-        await query.message.reply_text("🚫 User berhasil dibanned.")
-
+        await query.message.reply_text(f"🚫 User {user_id} berhasil dibanned.")
         await query.message.edit_reply_markup(
             reply_markup=admin_buttons(uid, user_id)
         )
@@ -345,15 +422,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id in banned_users:
             banned_users.remove(user_id)
             save_banned(banned_users)
-
-        await query.message.reply_text("✅ User berhasil di-unban.")
-
+        await query.message.reply_text(f"✅ User {user_id} berhasil di-unban.")
         await query.message.edit_reply_markup(
             reply_markup=admin_buttons(uid, user_id)
         )
-        
+
 # =========================
-# BALASAN ADMIN KE USER
+# BALASAN ADMIN → USER
 # =========================
 async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_chat.id != ADMIN_GROUP_ID:
@@ -362,21 +437,28 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if "reply_to" not in context.chat_data:
         return
 
+    if not update.message or not update.message.text:
+        return
+
     uid = context.chat_data["reply_to"]
 
     if uid not in data_db["messages"]:
-        await update.message.reply_text("❌ Data tidak ditemukan.")
+        await update.message.reply_text("❌ Data menfess tidak ditemukan.")
         context.chat_data.pop("reply_to", None)
         return
 
     user_id = data_db["messages"][uid]["user_id"]
 
-    await context.bot.send_message(
-        chat_id=user_id,
-        text=f"📩 Balasan Admin:\n\n{update.message.text}"
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=f"📩 Balasan dari Admin:\n\n{update.message.text}",
+        )
+        await update.message.reply_text("✅ Balasan berhasil dikirim ke pengirim menfess.")
+    except Exception as e:
+        logging.error(f"Gagal kirim balasan ke user: {e}")
+        await update.message.reply_text("❌ Gagal mengirim balasan. Pastikan user masih aktif.")
 
-    await update.message.reply_text("✅ Balasan berhasil dikirim ke sender.")
     context.chat_data.pop("reply_to", None)
 
 # =========================
@@ -386,7 +468,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.error("Terjadi error:", exc_info=context.error)
 
 # =========================
-# BERSIHKAN WEBHOOK
+# BERSIHKAN WEBHOOK SAAT START
 # =========================
 async def post_init(application):
     await application.bot.delete_webhook(drop_pending_updates=True)
@@ -401,16 +483,18 @@ app.add_error_handler(error_handler)
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("unban", unban_command))
 
+# Handler admin reply — harus di atas handle_message agar tidak bentrok
 app.add_handler(MessageHandler(
     filters.TEXT & filters.Chat(ADMIN_GROUP_ID) & ~filters.COMMAND,
-    handle_admin_reply
+    handle_admin_reply,
 ))
 
 app.add_handler(CallbackQueryHandler(button_handler))
 
 app.add_handler(MessageHandler(
     filters.TEXT & filters.ChatType.PRIVATE & ~filters.COMMAND,
-    handle_message
+    handle_message,
 ))
+
 print("Bot running...")
 app.run_polling(drop_pending_updates=True)
