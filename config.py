@@ -4,6 +4,6 @@ CHANNEL_USERNAME = "@menfesssmpn54sby"
 MAIN_CHANNEL_ID = -1003650282810
 ADMIN_GROUP_ID = -1003709511918
 
-ADMIN_IDS = [8642114035]
+ADMIN_IDS = [8642114035, 7738787132, 7617702395]
 
 FORBIDDEN_WORDS = ["anjing", "babi", "goblok", "kontol", "memek", "jancok", "cok", "asu", "tempek","tolol", "bajiangan", "sialan", "peli", "nggatel", "coli", "colmek", "gendeng"]
