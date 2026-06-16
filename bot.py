@@ -351,11 +351,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
 
-    if update.effective_user.id not in ADMIN_IDS:
+    # 1. Validasi Admin DULU (Pastikan tipe datanya sama-sama integer)
+    admin_ids = [int(x) for x in ADMIN_IDS]
+    
+    if update.effective_user.id not in admin_ids:
+        # Panggil answer di sini sekaligus kasih alert
         await query.answer("Kamu bukan admin.", show_alert=True)
         return
+
+    # 2. Kalau lolos cek admin, baru panggil answer() untuk menyetop loading spinner
+    await query.answer()
 
     try:
         action, uid = query.data.split(":", 1)
@@ -363,6 +369,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("❌ Format tombol tidak valid.")
         return
 
+    # 3. Lanjut cek database
     if uid not in data_db["messages"]:
         await query.message.reply_text(
             "❌ Data menfess tidak ditemukan.\n"
